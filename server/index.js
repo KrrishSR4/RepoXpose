@@ -35,17 +35,17 @@ const activeJobs = new Map();
 // API endpoint to accept GitHub URL
 app.post('/api/execute', async (req, res) => {
   const { repoUrl } = req.body;
-  
+
   if (!repoUrl) {
     return res.status(400).json({ error: 'GitHub URL required' });
   }
 
   const jobId = uuidv4();
   const workDir = path.join(TEMP_DIR, jobId);
-  
+
   try {
     fs.ensureDirSync(workDir);
-    
+
     const job = {
       id: jobId,
       repoUrl,
@@ -56,17 +56,17 @@ app.post('/api/execute', async (req, res) => {
       containerId: null,
       logs: []
     };
-    
+
     activeJobs.set(jobId, job);
-    
+
     // Start execution
     executeRepository(jobId, repoUrl, workDir);
-    
-    res.json({ 
+
+    res.json({
       jobId,
       status: 'started'
     });
-    
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -87,10 +87,10 @@ app.delete('/api/job/:jobId', async (req, res) => {
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
   }
-  
+
   await cleanupJob(job);
   activeJobs.delete(req.params.jobId);
-  
+
   res.json({ status: 'stopped' });
 });
 
@@ -103,21 +103,21 @@ io.on('connection', (socket) => {
 
 async function executeRepository(jobId, repoUrl, workDir) {
   const job = activeJobs.get(jobId);
-  
+
   try {
     // Step 1: Clone repository
     await cloneRepo(job, repoUrl, workDir);
-    
+
     // Step 2: Detect project type
     const projectType = await detectProjectType(workDir);
     job.stack = projectType;
-    
+
     // Step 3: Generate or use Dockerfile
     await prepareDockerfile(workDir, projectType);
-    
+
     // Step 4: Build and run container
     await buildAndRun(job, workDir, projectType);
-    
+
   } catch (error) {
     job.status = 'failed';
     job.logs.push({ type: 'error', message: error.message });
@@ -132,19 +132,19 @@ async function cloneRepo(job, repoUrl, workDir) {
       job.logs.push({ type, message });
       io.to(job.id).emit('log', { type, message });
     };
-    
+
     log('info', `Cloning ${repoUrl}...`);
-    
+
     const gitProcess = spawn('git', ['clone', repoUrl, workDir]);
-    
+
     gitProcess.stdout.on('data', (data) => {
       log('info', data.toString().trim());
     });
-    
+
     gitProcess.stderr.on('data', (data) => {
       log('info', data.toString().trim());
     });
-    
+
     gitProcess.on('close', (code) => {
       if (code === 0) {
         log('success', 'Repository cloned successfully');
@@ -158,7 +158,7 @@ async function cloneRepo(job, repoUrl, workDir) {
 
 async function detectProjectType(workDir) {
   const files = fs.readdirSync(workDir);
-  
+
   if (files.includes('Dockerfile')) {
     return 'docker';
   } else if (files.includes('package.json')) {
@@ -166,7 +166,7 @@ async function detectProjectType(workDir) {
   } else if (files.includes('requirements.txt') || files.includes('pyproject.toml')) {
     return 'python';
   }
-  
+
   throw new Error('Unsupported project type');
 }
 
@@ -174,25 +174,27 @@ async function prepareDockerfile(workDir, projectType) {
   if (projectType === 'docker') {
     return; // Use existing Dockerfile
   }
-  
+
   let dockerfile = '';
-  
+
   if (projectType === 'node') {
-    dockerfile = `FROM node:18
+    dockerfile = `FROM node:18-alpine
 WORKDIR /app
+COPY package*.json ./
+RUN npm install --production --silent
 COPY . .
-RUN npm install
 EXPOSE 3000
-CMD ["npm","run","dev"]`;
+CMD ["npm","start"]`;
   } else if (projectType === 'python') {
-    dockerfile = `FROM python:3.10
+    dockerfile = `FROM python:3.10-alpine
 WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-RUN pip install -r requirements.txt
 EXPOSE 5000
 CMD ["python","app.py"]`;
   }
-  
+
   await fs.writeFile(path.join(workDir, 'Dockerfile'), dockerfile);
 }
 
@@ -201,39 +203,55 @@ async function buildAndRun(job, workDir, projectType) {
     job.logs.push({ type, message });
     io.to(job.id).emit('log', { type, message });
   };
-  
+
   try {
     // Get random port
     const hostPort = getAvailablePort();
     const containerPort = projectType === 'node' ? 3000 : 5000;
     job.port = hostPort;
-    
+
     // Build image
     job.status = 'building';
-    log('info', 'Building Docker image...');
-    
+    log('info', 'Building Docker image (this may take 2-5 minutes)...');
+
     const buildStream = await docker.buildImage({
       context: workDir,
       src: fs.readdirSync(workDir)
-    }, { t: `temp-app-${job.id}` });
-    
+    }, { t: `temp-app-${job.id}`, forcerm: true });
+
+    let buildProgress = 0;
     await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Build timeout after 10 minutes'));
+      }, 10 * 60 * 1000);
+
       docker.modem.followProgress(buildStream, (err, res) => {
+        clearTimeout(timeout);
         if (err) reject(err);
         else resolve(res);
       }, (event) => {
         if (event.stream) {
-          log('info', event.stream.trim());
+          const message = event.stream.trim();
+          if (message && !message.includes('---')) {
+            buildProgress++;
+            if (buildProgress % 10 === 0) {
+              log('info', `Build progress: ${message.substring(0, 50)}...`);
+            }
+          }
+        }
+        if (event.error) {
+          clearTimeout(timeout);
+          reject(new Error(event.error));
         }
       });
     });
-    
+
     log('success', 'Image built successfully');
-    
+
     // Run container
     job.status = 'running';
     log('info', `Starting container on port ${hostPort}...`);
-    
+
     const container = await docker.createContainer({
       Image: `temp-app-${job.id}`,
       ExposedPorts: { [`${containerPort}/tcp`]: {} },
@@ -242,21 +260,21 @@ async function buildAndRun(job, workDir, projectType) {
         AutoRemove: true
       }
     });
-    
+
     await container.start();
     job.containerId = container.id;
     job.status = 'running';
-    
+
     log('success', `Container running on port ${hostPort}`);
-    
+
     // Stream logs
     streamLogs(job, container);
-    
+
     // Auto cleanup after 10 minutes
     setTimeout(() => {
       cleanupJob(job);
     }, 10 * 60 * 1000);
-    
+
   } catch (error) {
     job.status = 'failed';
     log('error', error.message);
@@ -271,7 +289,7 @@ async function streamLogs(job, container) {
       follow: true,
       timestamps: false
     });
-    
+
     logsStream.on('data', (chunk) => {
       const message = chunk.toString().trim();
       if (message) {
@@ -291,13 +309,13 @@ async function cleanupJob(job) {
       const container = docker.getContainer(job.containerId);
       await container.stop({ t: 0 });
     }
-    
+
     // Remove temp folder
     await fs.remove(job.workDir);
-    
+
     job.status = 'stopped';
     io.to(job.id).emit('log', { type: 'info', message: 'Job cleaned up' });
-    
+
   } catch (error) {
     console.log('Cleanup error:', error.message);
   }
