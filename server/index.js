@@ -25,6 +25,24 @@ const docker = new Docker();
 const PORT = 3001;
 const TEMP_DIR = path.join(__dirname, 'temp');
 
+// Pre-pull base images at startup
+async function pullBaseImages() {
+  try {
+    console.log('Pre-pulling base images...');
+    await docker.pull('node:18-alpine', (err, stream) => {
+      if (err) console.error('Error pulling node:18-alpine:', err);
+      else console.log('node:18-alpine pulled successfully');
+    });
+    await docker.pull('python:3.10-alpine', (err, stream) => {
+      if (err) console.error('Error pulling python:3.10-alpine:', err);
+      else console.log('python:3.10-alpine pulled successfully');
+    });
+  } catch (error) {
+    console.error('Error pre-pulling images:', error);
+  }
+}
+pullBaseImages();
+
 app.use(cors());
 app.use(express.json());
 
@@ -179,11 +197,16 @@ async function prepareDockerfile(workDir, projectType) {
 
   if (projectType === 'node') {
     dockerfile = `FROM node:18-alpine
+
 WORKDIR /app
+
 COPY package*.json ./
-RUN npm install --production --silent
+RUN npm install --prefer-offline --no-audit --progress=false
+
 COPY . .
+
 EXPOSE 3000
+
 CMD ["npm","start"]`;
   } else if (projectType === 'python') {
     dockerfile = `FROM python:3.10-alpine
@@ -212,18 +235,17 @@ async function buildAndRun(job, workDir, projectType) {
 
     // Build image
     job.status = 'building';
-    log('info', 'Building Docker image (this may take 2-5 minutes)...');
+    log('info', 'Starting Docker build...');
 
     const buildStream = await docker.buildImage({
       context: workDir,
       src: fs.readdirSync(workDir)
     }, { t: `temp-app-${job.id}`, forcerm: true });
 
-    let buildProgress = 0;
     await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error('Build timeout after 10 minutes'));
-      }, 10 * 60 * 1000);
+        reject(new Error('Build timeout after 5 minutes'));
+      }, 5 * 60 * 1000);
 
       docker.modem.followProgress(buildStream, (err, res) => {
         clearTimeout(timeout);
@@ -232,11 +254,8 @@ async function buildAndRun(job, workDir, projectType) {
       }, (event) => {
         if (event.stream) {
           const message = event.stream.trim();
-          if (message && !message.includes('---')) {
-            buildProgress++;
-            if (buildProgress % 10 === 0) {
-              log('info', `Build progress: ${message.substring(0, 50)}...`);
-            }
+          if (message) {
+            log('info', message);
           }
         }
         if (event.error) {
@@ -250,7 +269,7 @@ async function buildAndRun(job, workDir, projectType) {
 
     // Run container
     job.status = 'running';
-    log('info', `Starting container on port ${hostPort}...`);
+    log('info', 'Running container...');
 
     const container = await docker.createContainer({
       Image: `temp-app-${job.id}`,
