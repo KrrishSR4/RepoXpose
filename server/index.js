@@ -37,7 +37,7 @@ const activeContainers = new Map();
 // API Routes
 app.post('/api/run', async (req, res) => {
   const { repoUrl } = req.body;
-  
+
   if (!repoUrl) {
     return res.status(400).json({ error: 'Repository URL required' });
   }
@@ -72,8 +72,8 @@ app.post('/api/run', async (req, res) => {
     // Start cloning process
     cloneRepository(jobId, repoUrl, repoDir);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       jobId,
       repoName: cleanRepoName,
       status: 'cloning'
@@ -88,7 +88,7 @@ app.post('/api/run', async (req, res) => {
 app.get('/api/status/:jobId', (req, res) => {
   const { jobId } = req.params;
   const job = activeContainers.get(jobId);
-  
+
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
   }
@@ -99,7 +99,7 @@ app.get('/api/status/:jobId', (req, res) => {
 app.delete('/api/stop/:jobId', async (req, res) => {
   const { jobId } = req.params;
   const job = activeContainers.get(jobId);
-  
+
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
   }
@@ -147,7 +147,7 @@ io.on('connection', (socket) => {
 // Helper Functions
 async function cloneRepository(jobId, repoUrl, repoDir) {
   const job = activeContainers.get(jobId);
-  
+
   try {
     // Send initial logs
     io.to(jobId).emit('log', {
@@ -155,7 +155,7 @@ async function cloneRepository(jobId, repoUrl, repoDir) {
       message: `╔════════════════════════════════════════════╗`
     });
     io.to(jobId).emit('log', {
-      type: 'system', 
+      type: 'system',
       message: `║  RepoXpose · Paste. Run. Reveal.          ║`
     });
     io.to(jobId).emit('log', {
@@ -217,7 +217,7 @@ async function cloneRepository(jobId, repoUrl, repoDir) {
 
 async function detectAndRunProject(jobId, repoDir) {
   const job = activeContainers.get(jobId);
-  
+
   try {
     // Update status
     job.status = 'detecting';
@@ -281,7 +281,7 @@ async function detectAndRunProject(jobId, repoDir) {
 
 async function buildAndRunContainer(jobId, repoDir, projectType, port) {
   const job = activeContainers.get(jobId);
-  
+
   try {
     job.status = 'installing';
     io.to(jobId).emit('status', { status: 'installing' });
@@ -357,9 +357,9 @@ CMD ["python", "app.py"]`;
 
     const container = await docker.createContainer({
       Image: `repoxpose-${jobId}`,
-      ExposedPorts: { `${port}/tcp`: {} },
+      ExposedPorts: { [`${port}/tcp`]: {} },
       HostConfig: {
-        PortBindings: { `${port}/tcp`: [{ HostPort: `${port}` }] }
+        PortBindings: { [`${port}/tcp`]: [{ HostPort: `${port}` }] }
       }
     });
 
@@ -373,7 +373,7 @@ CMD ["python", "app.py"]`;
       message: `▶ Application is live on port ${port}`
     });
 
-    io.to(jobId).emit('status', { 
+    io.to(jobId).emit('status', {
       status: 'success',
       port,
       containerId: container.id
