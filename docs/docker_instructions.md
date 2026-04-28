@@ -1,143 +1,150 @@
-# Docker Instructions
+# 🐳 Docker Execution Flow - RepoXpose
 
-A practical guide for installing, running, and managing Docker containers.
+This document explains how RepoXpose clones, detects, and runs any GitHub repository inside an isolated Docker environment.
 
-## 1. Installation
+---
 
-### macOS / Windows
-Download and install **Docker Desktop** from [docker.com](https://www.docker.com/products/docker-desktop/).
+## ⚙️ Overview
 
-### Linux (Ubuntu/Debian)
+For every repository:
+
+1. Clone the repo
+2. Detect project type
+3. Generate runtime instructions
+4. Run inside a Docker container
+5. Stream logs + expose preview
+
+---
+
+## 📦 Step 1: Clone Repository
+
 ```bash
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-newgrp docker
+git clone <repo_url>
+cd <repo_name>
 ```
 
-Verify installation:
+---
+
+## 🔍 Step 2: Detect Project Type
+
+Detection is based on files:
+
+* `package.json` → Node.js
+* `requirements.txt` / `pyproject.toml` → Python
+* `Dockerfile` → Use directly
+* else → unsupported
+
+---
+
+## 🐳 Step 3: Docker Execution Strategy
+
+### Case 1: If Dockerfile exists
+
 ```bash
-docker --version
-docker run hello-world
+docker build -t repoxpose-app .
+docker run -p 3000:3000 repoxpose-app
 ```
 
-## 2. Core Concepts
+---
 
-| Term | Description |
-|------|-------------|
-| **Image** | Read-only template used to create containers |
-| **Container** | A running instance of an image |
-| **Dockerfile** | Script with instructions to build an image |
-| **Volume** | Persistent storage for containers |
-| **Network** | Virtual network for container communication |
+### Case 2: Node.js Project
 
-## 3. Common Commands
+#### Dockerfile (generated dynamically)
 
-### Images
-```bash
-docker pull <image>            # Download an image
-docker images                  # List local images
-docker rmi <image>             # Remove an image
-docker build -t myapp:latest . # Build image from Dockerfile
-```
+```Dockerfile
+FROM node:18
 
-### Containers
-```bash
-docker run -d -p 3000:3000 --name myapp myapp:latest
-docker ps                      # List running containers
-docker ps -a                   # List all containers
-docker stop <container>        # Stop container
-docker start <container>       # Start container
-docker rm <container>          # Remove container
-docker logs -f <container>     # Stream logs
-docker exec -it <container> sh # Shell into container
-```
-
-### Cleanup
-```bash
-docker system prune -a         # Remove unused images, containers, networks
-docker volume prune            # Remove unused volumes
-```
-
-## 4. Writing a Dockerfile
-
-Example for a Node.js app:
-```dockerfile
-FROM node:20-alpine
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
 COPY . .
+
+RUN npm install
+
 EXPOSE 3000
-CMD ["node", "server.js"]
+
+CMD ["npm","run","dev"]
 ```
 
-Build and run:
-```bash
-docker build -t my-node-app .
-docker run -p 3000:3000 my-node-app
-```
-
-## 5. Docker Compose
-
-Define multi-container apps in `docker-compose.yml`:
-```yaml
-version: "3.9"
-services:
-  web:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-    depends_on:
-      - db
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_PASSWORD: secret
-    volumes:
-      - dbdata:/var/lib/postgresql/data
-volumes:
-  dbdata:
-```
-
-Run the stack:
-```bash
-docker compose up -d
-docker compose logs -f
-docker compose down
-```
-
-## 6. Volumes & Networks
+#### Run:
 
 ```bash
-docker volume create mydata
-docker run -v mydata:/app/data myapp
-
-docker network create mynet
-docker run --network mynet --name api myapp
+docker build -t repoxpose-node .
+docker run -p 3000:3000 repoxpose-node
 ```
 
-## 7. Best Practices
+---
 
-- Use **small base images** (`alpine`, `distroless`)
-- Leverage **layer caching** — copy `package.json` before source code
-- Use **multi-stage builds** to keep images lean
-- Never store **secrets** in images; use env vars or secret managers
-- Always **pin versions** (`node:20-alpine`, not `node:latest`)
-- Add a **`.dockerignore`** file (exclude `node_modules`, `.git`, `.env`)
+### Case 3: Python Project
 
-## 8. Troubleshooting
+#### Dockerfile (generated dynamically)
 
-| Issue | Fix |
-|-------|-----|
-| `permission denied` on socket | Add user to `docker` group |
-| Port already in use | Change host port: `-p 3001:3000` |
-| Container exits immediately | Check `docker logs <container>` |
-| Out of disk space | Run `docker system prune -a` |
+```Dockerfile
+FROM python:3.10
 
-## 9. Useful Resources
+WORKDIR /app
+COPY . .
 
-- [Official Docs](https://docs.docker.com/)
-- [Docker Hub](https://hub.docker.com/)
-- [Awesome Docker](https://github.com/veggiemonk/awesome-docker)
+RUN pip install -r requirements.txt
+
+EXPOSE 5000
+
+CMD ["python","app.py"]
+```
+
+#### Run:
+
+```bash
+docker build -t repoxpose-python .
+docker run -p 5000:5000 repoxpose-python
+```
+
+---
+
+## 📡 Step 4: Logs Streaming
+
+* Capture container stdout/stderr
+* Stream via WebSocket to frontend
+
+---
+
+## 🌐 Step 5: Preview Handling
+
+* Detect running port (3000, 5000, etc.)
+* Map container port to host
+* Serve via reverse proxy
+
+Example:
+
+```
+https://<project>-3000.repoxpose.app
+```
+
+---
+
+## 🔐 Security Measures
+
+* Run containers in isolation
+* Limit CPU & memory
+* Disable privileged mode
+* Set execution timeout
+* Auto-stop containers after inactivity
+
+---
+
+## 🧠 Future Improvements
+
+* Multi-language support (Go, Java, PHP)
+* Auto port detection
+* Smart retry on failure
+* AI-based error fixing
+
+---
+
+## 🚀 Summary
+
+RepoXpose uses Docker to:
+
+* Safely run unknown code
+* Ensure consistent environments
+* Enable live preview and logs
+
+All executions are sandboxed and temporary.
