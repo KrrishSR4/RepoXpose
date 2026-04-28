@@ -7,7 +7,6 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,7 +37,7 @@ const activeContainers = new Map();
 // API Routes
 app.post('/api/run', async (req, res) => {
   const { repoUrl } = req.body;
-  
+
   if (!repoUrl) {
     return res.status(400).json({ error: 'Repository URL required' });
   }
@@ -73,8 +72,8 @@ app.post('/api/run', async (req, res) => {
     // Start cloning process
     cloneRepository(jobId, repoUrl, repoDir);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       jobId,
       repoName: cleanRepoName,
       status: 'cloning'
@@ -89,7 +88,7 @@ app.post('/api/run', async (req, res) => {
 app.get('/api/status/:jobId', (req, res) => {
   const { jobId } = req.params;
   const job = activeContainers.get(jobId);
-  
+
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
   }
@@ -100,7 +99,7 @@ app.get('/api/status/:jobId', (req, res) => {
 app.delete('/api/stop/:jobId', async (req, res) => {
   const { jobId } = req.params;
   const job = activeContainers.get(jobId);
-  
+
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
   }
@@ -108,22 +107,14 @@ app.delete('/api/stop/:jobId', async (req, res) => {
   try {
     // Stop and remove container if exists
     if (job.containerId) {
-      try {
-        const container = docker.getContainer(job.containerId);
-        await container.stop({ t: 0 });
-        await container.remove();
-      } catch (containerError) {
-        console.log('Container already stopped or removed:', containerError.message);
-      }
+      const container = docker.getContainer(job.containerId);
+      await container.stop({ t: 0 });
+      await container.remove();
     }
 
     // Clean up workspace
     const repoDir = path.join(WORKSPACE_DIR, jobId);
-    try {
-      fs.removeSync(repoDir);
-    } catch (cleanupError) {
-      console.log('Workspace cleanup error:', cleanupError.message);
-    }
+    fs.removeSync(repoDir);
 
     // Remove from active containers
     activeContainers.delete(jobId);
@@ -156,7 +147,7 @@ io.on('connection', (socket) => {
 // Helper Functions
 async function cloneRepository(jobId, repoUrl, repoDir) {
   const job = activeContainers.get(jobId);
-  
+
   try {
     // Send initial logs
     io.to(jobId).emit('log', {
@@ -164,7 +155,7 @@ async function cloneRepository(jobId, repoUrl, repoDir) {
       message: `╔════════════════════════════════════════════╗`
     });
     io.to(jobId).emit('log', {
-      type: 'system', 
+      type: 'system',
       message: `║  RepoXpose · Paste. Run. Reveal.          ║`
     });
     io.to(jobId).emit('log', {
@@ -176,32 +167,22 @@ async function cloneRepository(jobId, repoUrl, repoDir) {
     job.status = 'cloning';
     io.to(jobId).emit('status', { status: 'cloning' });
 
-    // Clone repository using simple-git approach
-    io.to(jobId).emit('log', {
-      type: 'command',
-      message: `$ git clone ${repoUrl} ${repoDir}`
-    });
-
+    // Clone repository (simplified version)
+    const { spawn } = await import('child_process');
     const gitProcess = spawn('git', ['clone', repoUrl, repoDir]);
 
     gitProcess.stdout.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output) {
-        io.to(jobId).emit('log', {
-          type: 'info',
-          message: output
-        });
-      }
+      io.to(jobId).emit('log', {
+        type: 'info',
+        message: data.toString().trim()
+      });
     });
 
     gitProcess.stderr.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output) {
-        io.to(jobId).emit('log', {
-          type: 'info',
-          message: output
-        });
-      }
+      io.to(jobId).emit('log', {
+        type: 'info',
+        message: data.toString().trim()
+      });
     });
 
     gitProcess.on('close', async (code) => {
@@ -236,7 +217,7 @@ async function cloneRepository(jobId, repoUrl, repoDir) {
 
 async function detectAndRunProject(jobId, repoDir) {
   const job = activeContainers.get(jobId);
-  
+
   try {
     // Update status
     job.status = 'detecting';
@@ -254,26 +235,9 @@ async function detectAndRunProject(jobId, repoDir) {
 
     let projectType = 'unsupported';
     let port = null;
-    let dockerfile = '';
-
-    // List files for debugging
-    try {
-      const files = fs.readdirSync(repoDir);
-      io.to(jobId).emit('log', {
-        type: 'info',
-        message: `Files: ${files.join(', ')}`
-      });
-    } catch (lsError) {
-      io.to(jobId).emit('log', {
-        type: 'error',
-        message: `Cannot list directory: ${lsError.message}`
-      });
-    }
 
     if (await fs.pathExists(dockerfilePath)) {
       projectType = 'docker';
-      port = 8000;
-      dockerfile = await fs.readFile(dockerfilePath, 'utf8');
       io.to(jobId).emit('log', {
         type: 'success',
         message: '✓ Detected: Docker project (Dockerfile found)'
@@ -281,13 +245,6 @@ async function detectAndRunProject(jobId, repoDir) {
     } else if (await fs.pathExists(packageJsonPath)) {
       projectType = 'node';
       port = 3000;
-      dockerfile = `FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-EXPOSE ${port}
-CMD ["npm", "run", "dev"]`;
       io.to(jobId).emit('log', {
         type: 'success',
         message: '✓ Detected: Node.js project (package.json found)'
@@ -295,13 +252,6 @@ CMD ["npm", "run", "dev"]`;
     } else if (await fs.pathExists(requirementsPath)) {
       projectType = 'python';
       port = 5000;
-      dockerfile = `FROM python:3.10-alpine
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-EXPOSE ${port}
-CMD ["python", "app.py"]`;
       io.to(jobId).emit('log', {
         type: 'success',
         message: '✓ Detected: Python project (requirements.txt found)'
@@ -309,7 +259,7 @@ CMD ["python", "app.py"]`;
     } else {
       io.to(jobId).emit('log', {
         type: 'error',
-        message: '✗ Unsupported project type - no package.json, requirements.txt, or Dockerfile found'
+        message: '✗ Unsupported project type'
       });
       job.status = 'failed';
       io.to(jobId).emit('status', { status: 'failed' });
@@ -320,33 +270,50 @@ CMD ["python", "app.py"]`;
     job.port = port;
 
     // Build and run container
-    await buildAndRunContainer(jobId, repoDir, projectType, port, dockerfile);
+    await buildAndRunContainer(jobId, repoDir, projectType, port);
 
   } catch (error) {
     console.error('Detection error:', error);
-    io.to(jobId).emit('log', {
-      type: 'error',
-      message: `Detection error: ${error.message}`
-    });
     job.status = 'failed';
     io.to(jobId).emit('status', { status: 'failed' });
   }
 }
 
-async function buildAndRunContainer(jobId, repoDir, projectType, port, dockerfile) {
+async function buildAndRunContainer(jobId, repoDir, projectType, port) {
   const job = activeContainers.get(jobId);
-  
+
   try {
     job.status = 'installing';
     io.to(jobId).emit('status', { status: 'installing' });
 
-    // Write Dockerfile if not using existing one
+    let dockerfile = '';
+
+    if (projectType === 'docker') {
+      // Use existing Dockerfile
+      dockerfile = await fs.readFile(path.join(repoDir, 'Dockerfile'), 'utf8');
+    } else if (projectType === 'node') {
+      // Generate Node.js Dockerfile
+      dockerfile = `FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE ${port}
+CMD ["npm", "run", "dev"]`;
+    } else if (projectType === 'python') {
+      // Generate Python Dockerfile
+      dockerfile = `FROM python:3.10-alpine
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+EXPOSE ${port}
+CMD ["python", "app.py"]`;
+    }
+
+    // Write Dockerfile if not exists
     if (projectType !== 'docker') {
       await fs.writeFile(path.join(repoDir, 'Dockerfile'), dockerfile);
-      io.to(jobId).emit('log', {
-        type: 'info',
-        message: 'Generated Dockerfile for project'
-      });
     }
 
     // Build image
@@ -354,23 +321,6 @@ async function buildAndRunContainer(jobId, repoDir, projectType, port, dockerfil
       type: 'command',
       message: `$ docker build -t repoxpose-${jobId} .`
     });
-
-    // Check if Docker is available
-    try {
-      await docker.ping();
-      io.to(jobId).emit('log', {
-        type: 'info',
-        message: 'Docker daemon is running'
-      });
-    } catch (dockerError) {
-      io.to(jobId).emit('log', {
-        type: 'error',
-        message: 'Docker daemon is not running or accessible'
-      });
-      job.status = 'failed';
-      io.to(jobId).emit('status', { status: 'failed' });
-      return;
-    }
 
     const buildStream = await docker.buildImage({
       context: repoDir,
@@ -386,12 +336,6 @@ async function buildAndRunContainer(jobId, repoDir, projectType, port, dockerfil
           io.to(jobId).emit('log', {
             type: 'info',
             message: event.stream.trim()
-          });
-        }
-        if (event.error) {
-          io.to(jobId).emit('log', {
-            type: 'error',
-            message: event.error
           });
         }
       });
@@ -415,8 +359,7 @@ async function buildAndRunContainer(jobId, repoDir, projectType, port, dockerfil
       Image: `repoxpose-${jobId}`,
       ExposedPorts: { [`${port}/tcp`]: {} },
       HostConfig: {
-        PortBindings: { [`${port}/tcp`]: [{ HostPort: `${port}` }] },
-        AutoRemove: true
+        PortBindings: { [`${port}/tcp`]: [{ HostPort: `${port}` }] }
       }
     });
 
@@ -430,42 +373,38 @@ async function buildAndRunContainer(jobId, repoDir, projectType, port, dockerfil
       message: `▶ Application is live on port ${port}`
     });
 
-    io.to(jobId).emit('status', { 
+    io.to(jobId).emit('status', {
       status: 'success',
       port,
       containerId: container.id
     });
 
     // Stream logs from container
-    try {
-      const logsStream = await container.logs({
-        stdout: true,
-        stderr: true,
-        follow: true,
-        timestamps: false
-      });
+    const logsStream = await container.logs({
+      stdout: true,
+      stderr: true,
+      follow: true,
+      timestamps: false
+    });
 
-      logsStream.on('data', (chunk) => {
-        const log = chunk.toString().trim();
-        if (log) {
-          io.to(jobId).emit('log', {
-            type: 'info',
-            message: log
-          });
-        }
-      });
-    } catch (logError) {
-      console.log('Could not stream container logs:', logError.message);
-    }
+    logsStream.on('data', (chunk) => {
+      const log = chunk.toString().trim();
+      if (log) {
+        io.to(jobId).emit('log', {
+          type: 'info',
+          message: log
+        });
+      }
+    });
 
   } catch (error) {
     console.error('Container error:', error);
+    job.status = 'failed';
+    io.to(jobId).emit('status', { status: 'failed' });
     io.to(jobId).emit('log', {
       type: 'error',
       message: `✗ Container failed: ${error.message}`
     });
-    job.status = 'failed';
-    io.to(jobId).emit('status', { status: 'failed' });
   }
 }
 
@@ -473,5 +412,4 @@ async function buildAndRunContainer(jobId, repoDir, projectType, port, dockerfil
 server.listen(PORT, () => {
   console.log(`RepoXpose Server running on http://localhost:${PORT}`);
   console.log('Docker integration ready');
-  console.log('Make sure Docker Desktop is running!');
 });
