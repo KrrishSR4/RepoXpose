@@ -151,19 +151,31 @@ async function cloneRepo(job, repoUrl, workDir) {
       io.to(job.id).emit('log', { type, message });
     };
 
-    log('info', `Cloning ${repoUrl}...`);
+    log('info', 'Cloning repository...');
 
-    const gitProcess = spawn('git', ['clone', repoUrl, workDir]);
+    const gitProcess = spawn('git', ['clone', '--depth=1', '--single-branch', '--no-tags', repoUrl, workDir]);
+
+    const timeout = setTimeout(() => {
+      gitProcess.kill();
+      reject(new Error('Clone timeout after 2 minutes'));
+    }, 2 * 60 * 1000);
 
     gitProcess.stdout.on('data', (data) => {
-      log('info', data.toString().trim());
+      const output = data.toString().trim();
+      if (output) {
+        log('info', output);
+      }
     });
 
     gitProcess.stderr.on('data', (data) => {
-      log('info', data.toString().trim());
+      const output = data.toString().trim();
+      if (output) {
+        log('info', output);
+      }
     });
 
     gitProcess.on('close', (code) => {
+      clearTimeout(timeout);
       if (code === 0) {
         log('success', 'Repository cloned successfully');
         resolve();
@@ -200,8 +212,13 @@ async function prepareDockerfile(workDir, projectType) {
 
 WORKDIR /app
 
+# copy only package files first (for caching)
+
 COPY package*.json ./
+
 RUN npm install --prefer-offline --no-audit --progress=false
+
+# now copy rest of files
 
 COPY . .
 
