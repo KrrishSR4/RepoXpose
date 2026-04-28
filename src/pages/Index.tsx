@@ -7,11 +7,11 @@ import { PreviewPanel } from "@/components/runner/PreviewPanel";
 import { StatusBar } from "@/components/runner/StatusBar";
 import { HistoryPanel } from "@/components/runner/HistoryPanel";
 import { SmartExecutionCard } from "@/components/runner/SmartExecutionCard";
-import { useRunner } from "@/hooks/useRunner";
+import { useRunnerReal } from "@/hooks/useRunnerReal";
 import { cn } from "@/lib/utils";
 
 const Index = () => {
-  const runner = useRunner();
+  const runner = useRunnerReal();
   const [showPreview, setShowPreview] = useState(true);
 
   // SEO
