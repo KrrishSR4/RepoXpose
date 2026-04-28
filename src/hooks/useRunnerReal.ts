@@ -47,19 +47,19 @@ export function useRunnerReal() {
 
     socket.on('status', (data: { status: RunStatus; port?: number; containerId?: string }) => {
       setStatus(data.status);
-      
+
       // Update steps based on status
       setSteps(prev => prev.map(step => {
         const stepMap: Record<RunStatus, string> = {
           idle: 'pending',
           cloning: 'clone',
-          detecting: 'detect', 
+          detecting: 'detect',
           installing: 'install',
           running: 'run',
           success: 'done',
           failed: 'failed'
         };
-        
+
         const targetStep = stepMap[data.status];
         return step.id === targetStep ? { ...step, status: data.status === 'failed' ? 'failed' : 'active' } : step;
       }));
@@ -80,7 +80,7 @@ export function useRunnerReal() {
             repoUrl,
             repoName,
             projectType: projectType || 'node',
-            status: 'success',
+            status: 'success' as RunStatus,
             startedAt: startedAtRef.current,
             durationMs: Date.now() - startedAtRef.current,
             port: data.port
@@ -137,14 +137,14 @@ export function useRunnerReal() {
       setElapsedMs(0);
       setRepoUrl(url);
       setRepoName(parsed.name);
-      
+
       // Detect project type for UI
       const type = detectProjectType(parsed.name);
       setProjectType(type);
       setSteps(buildSteps(type));
 
       // Call backend API
-      const response = await fetch('http://localhost:3001/api/run', {
+      const response = await fetch('http://localhost:3001/api/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -192,7 +192,7 @@ export function useRunnerReal() {
     if (!currentJobId) return;
 
     try {
-      const response = await fetch(`http://localhost:3001/api/stop/${currentJobId}`, {
+      const response = await fetch(`http://localhost:3001/api/job/${currentJobId}`, {
         method: 'DELETE',
       });
 
