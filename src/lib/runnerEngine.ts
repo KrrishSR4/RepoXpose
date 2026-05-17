@@ -9,8 +9,16 @@ export const makeLog = (level: LogLevel, text: string): LogEntry => ({
 });
 
 export function parseRepo(url: string): { owner: string; name: string } | null {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  const shorthandMatch = trimmed.match(/^([\w.-]+)\/([\w.-]+)(?:\.git)?$/);
+  if (shorthandMatch) {
+    return { owner: shorthandMatch[1], name: shorthandMatch[2] };
+  }
+
   try {
-    const u = new URL(url.trim());
+    const u = new URL(trimmed);
     if (!/github\.com$/i.test(u.hostname)) return null;
     const parts = u.pathname.replace(/^\/+|\/+$/g, "").split("/");
     if (parts.length < 2) return null;
@@ -38,20 +46,59 @@ export function detectProjectType(repoName: string): ProjectType {
 export const projectTypeMeta: Record<ProjectType, { label: string; file: string; port: number; color: string }> = {
   node: { label: "Node.js", file: "package.json", port: 3000, color: "text-success" },
   python: { label: "Python", file: "requirements.txt", port: 5000, color: "text-info" },
-  docker: { label: "Docker", file: "Dockerfile", port: 8000, color: "text-primary" },
+  docker: { label: "Docker", file: "Dockerfile", port: 3000, color: "text-primary" },
   static: { label: "Static Web (Nginx)", file: "index.html", port: 80, color: "text-accent" },
+  nextjs: { label: "Next.js", file: "package.json", port: 3000, color: "text-cyan" },
+  nuxtjs: { label: "Nuxt.js", file: "package.json", port: 3000, color: "text-blue" },
+  react: { label: "React", file: "package.json", port: 3000, color: "text-blue" },
+  "react-cra": { label: "React (CRA)", file: "package.json", port: 3000, color: "text-blue" },
+  "react-vite": { label: "React + Vite", file: "package.json", port: 5173, color: "text-blue" },
+  angular: { label: "Angular", file: "package.json", port: 4200, color: "text-violet" },
+  vue: { label: "Vue", file: "package.json", port: 8080, color: "text-emerald" },
+  "vue-vite": { label: "Vue + Vite", file: "package.json", port: 5173, color: "text-emerald" },
+  svelte: { label: "Svelte", file: "package.json", port: 5173, color: "text-orange" },
+  solid: { label: "SolidJS", file: "package.json", port: 5173, color: "text-emerald" },
+  astro: { label: "Astro", file: "package.json", port: 4321, color: "text-slate" },
+  remix: { label: "Remix", file: "package.json", port: 3000, color: "text-fuchsia" },
+  express: { label: "Express", file: "package.json", port: 3000, color: "text-emerald" },
+  fastify: { label: "Fastify", file: "package.json", port: 3000, color: "text-emerald" },
+  koa: { label: "Koa", file: "package.json", port: 3000, color: "text-emerald" },
+  django: { label: "Django", file: "requirements.txt", port: 8000, color: "text-purple" },
+  flask: { label: "Flask", file: "requirements.txt", port: 5000, color: "text-red" },
+  fastapi: { label: "FastAPI", file: "requirements.txt", port: 8000, color: "text-blue" },
   unsupported: { label: "Unsupported", file: "—", port: 0, color: "text-destructive" },
 };
+
+const nodeLikeTypes: ProjectType[] = [
+  "node",
+  "nextjs",
+  "nuxtjs",
+  "react",
+  "react-cra",
+  "react-vite",
+  "angular",
+  "vue",
+  "vue-vite",
+  "svelte",
+  "solid",
+  "astro",
+  "remix",
+  "express",
+  "fastify",
+  "koa",
+  "docker",
+];
 
 export const buildSteps = (type: ProjectType): RunStep[] => {
   const base: RunStep[] = [
     { id: "clone", label: "Clone repository", status: "pending" },
     { id: "detect", label: "Detect project type", status: "pending" },
   ];
-  if (type === "node") {
+
+  if (nodeLikeTypes.includes(type)) {
     base.push(
-      { id: "install", label: "Install dependencies (npm install)", status: "pending" },
-      { id: "run", label: "Run dev server (npm run dev)", status: "pending" },
+      { id: "install", label: "Install dependencies", status: "pending" },
+      { id: "run", label: "Run application", status: "pending" },
     );
   } else if (type === "python") {
     base.push(
@@ -64,6 +111,7 @@ export const buildSteps = (type: ProjectType): RunStep[] => {
       { id: "run", label: "Run container (docker run)", status: "pending" },
     );
   }
+
   return base;
 };
 

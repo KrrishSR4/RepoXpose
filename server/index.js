@@ -1,5 +1,5 @@
 import express from 'express';
-import { createServer } from 'http';
+import { createServer, request } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import Docker from 'dockerode';
@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import os from 'os';
+import net from 'net';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -229,35 +230,40 @@ async function cloneRepo(job, repoUrl, workDir) {
 
 async function detectLanguageAndFramework(workDir) {
   try {
-    const files = fs.readdirSync(workDir);
+    const files = await fs.readdir(workDir);
+    const hasDockerfile = files.includes('Dockerfile');
+    const hasPackageJson = files.includes('package.json');
+    const hasIndexHtml = files.includes('index.html') || files.some(f => f.toLowerCase().endsWith('.html'));
 
-    if (files.includes('Dockerfile')) {
-      return 'Docker Container (Custom Dockerfile)';
-    }
-
-    if (files.includes('package.json')) {
+    if (hasPackageJson) {
       try {
         const pkg = await fs.readJson(path.join(workDir, 'package.json'));
         const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+        const scripts = pkg.scripts || {};
+        const scriptContains = (scriptName, needle) => {
+          return typeof scripts[scriptName] === 'string' && scripts[scriptName].toLowerCase().includes(needle);
+        };
 
-        if (deps['next']) return 'nextjs';
-        if (deps['nuxt']) return 'nuxtjs';
-        if (deps['react'] && deps['vite']) return 'react-vite';
-        if (deps['react'] && (deps['react-scripts'] || pkg.scripts?.start)) return 'react-cra';
-        if (deps['react']) return 'react';
-        if (deps['@angular/core']) return 'angular';
-        if (deps['vue'] && deps['vite']) return 'vue-vite';
+        if (deps.next || scriptContains('dev', 'next') || scriptContains('start', 'next')) return 'nextjs';
+        if (deps.nuxt || scriptContains('dev', 'nuxt') || scriptContains('start', 'nuxt')) return 'nuxtjs';
+        if (deps['@angular/core'] || deps['@angular/cli'] || scriptContains('dev', 'ng ') || scriptContains('start', 'ng ')) return 'angular';
+        if (deps['react'] && deps.vite) return 'react-vite';
+        if (deps['react'] && deps['react-scripts']) return 'react-cra';
+        if (deps['react'] && scriptContains('dev', 'vite')) return 'react-vite';
+        if (deps['react'] && (scriptContains('dev', 'vite') || scriptContains('dev', 'react-scripts') || scriptContains('start', 'react-scripts') || deps['react'])) return 'react';
+        if (deps['vue'] && deps.vite) return 'vue-vite';
+        if (deps['vue'] && scriptContains('dev', 'vite')) return 'vue-vite';
         if (deps['vue']) return 'vue';
-        if (deps['svelte']) return 'svelte';
-        if (deps['solid-js']) return 'solid';
+        if (deps['svelte'] || deps['@sveltejs/kit']) return 'svelte';
+        if (deps['solid-js'] || deps['vite-plugin-solid']) return 'solid';
         if (deps['astro']) return 'astro';
-        if (deps['remix-run']) return 'remix';
+        if (deps['@remix-run/dev'] || deps['remix-run']) return 'remix';
         if (deps['express']) return 'express';
         if (deps['fastify']) return 'fastify';
         if (deps['koa']) return 'koa';
-        return 'node';
+        if (scripts.dev || scripts.start) return 'node';
       } catch (e) {
-        return 'node';
+        // Fallback to file-based detection.
       }
     }
 
@@ -277,10 +283,17 @@ async function detectLanguageAndFramework(workDir) {
       }
     }
 
-    if (files.includes('index.html') || files.some(f => f.endsWith('.html'))) {
+    if (hasIndexHtml) {
       return 'static';
     }
-  } catch (err) { }
+
+    if (hasDockerfile) {
+      return 'docker';
+    }
+  } catch (err) {
+    // ignore
+  }
+
   return 'unknown';
 }
 
@@ -315,18 +328,18 @@ function getFrameworkDisplay(frameworkType) {
 
 function getFrameworkConfig(frameworkType) {
   const configs = {
-    'nextjs': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev', port: 3000 },
-    'nuxtjs': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev', port: 3000 },
-    'react-vite': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev', port: 5173 },
-    'react-cra': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm start', port: 3000 },
+    'nextjs': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev -- --hostname 0.0.0.0 --port 3000', port: 3000 },
+    'nuxtjs': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev -- --hostname 0.0.0.0 --port 3000', port: 3000 },
+    'react-vite': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev -- --host 0.0.0.0 --port 5173', port: 5173 },
+    'react-cra': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'HOST=0.0.0.0 PORT=3000 npm start', port: 3000 },
     'react': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm start', port: 3000 },
-    'angular': { image: 'node:18-alpine', installCmd: 'npm install && npx -y @angular/cli install', startCmd: 'npx ng serve --host 0.0.0.0', port: 4200 },
-    'vue-vite': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev', port: 5173 },
-    'vue': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run serve', port: 8080 },
-    'svelte': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev', port: 5173 },
-    'solid': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev', port: 5173 },
-    'astro': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev', port: 4321 },
-    'remix': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev', port: 3000 },
+    'angular': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npx ng serve --host 0.0.0.0 --port 4200', port: 4200 },
+    'vue-vite': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev -- --host 0.0.0.0 --port 5173', port: 5173 },
+    'vue': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run serve -- --host 0.0.0.0 --port 8080', port: 8080 },
+    'svelte': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev -- --host 0.0.0.0 --port 5173', port: 5173 },
+    'solid': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev -- --host 0.0.0.0 --port 5173', port: 5173 },
+    'astro': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev -- --host 0.0.0.0 --port 4321', port: 4321 },
+    'remix': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm run dev -- --host 0.0.0.0 --port 3000', port: 3000 },
     'express': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm start', port: 3000 },
     'fastify': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm start', port: 3000 },
     'koa': { image: 'node:18-alpine', installCmd: 'npm install', startCmd: 'npm start', port: 3000 },
@@ -355,7 +368,7 @@ async function runDirectContainer(job, workDir, projectType) {
     const frameworkConfig = getFrameworkConfig(projectType);
 
     // Get random port
-    const hostPort = getAvailablePort();
+    const hostPort = await getAvailablePort();
     const containerPort = frameworkConfig.port;
     job.port = hostPort;
 
@@ -378,15 +391,22 @@ async function runDirectContainer(job, workDir, projectType) {
       io.to(job.id).emit('status', { status: 'installing' });
       log('info', 'Installing dependencies and starting application...');
     } else {
-      log('info', 'Starting Nginx web server...');
+      log('info', 'Starting static file server...');
     }
 
     const normalizedWorkDir = path.resolve(workDir);
     const workingDir = projectType === 'static' ? '/usr/share/nginx/html' : '/app';
 
+    const env = [];
+    if (projectType !== 'static') {
+      env.push(`HOST=0.0.0.0`);
+      env.push(`PORT=${containerPort}`);
+    }
+
     const containerOptions = {
       Image: image,
       WorkingDir: workingDir,
+      Env: env.length ? env : undefined,
       ExposedPorts: { [`${containerPort}/tcp`]: {} },
       HostConfig: {
         Binds: [`${normalizedWorkDir}:${workingDir}`],
@@ -403,6 +423,11 @@ async function runDirectContainer(job, workDir, projectType) {
 
     await container.start();
     job.containerId = container.id;
+
+    // Wait for container to be ready (especially important for nginx)
+    log('info', 'Waiting for container to be ready...');
+    await waitForContainerReady(container, hostPort, projectType);
+
     job.status = 'success';
 
     log('success', `Container running on port ${hostPort}`);
@@ -454,6 +479,51 @@ async function streamLogs(job, container) {
   }
 }
 
+async function waitForContainerReady(container, hostPort, projectType) {
+  const maxAttempts = 30;
+  const delay = 1000;
+
+  const checkHost = () => new Promise((resolve) => {
+    const req = request({
+      hostname: '127.0.0.1',
+      port: hostPort,
+      path: '/',
+      method: 'GET',
+      timeout: 1500
+    }, (res) => {
+      res.resume();
+      resolve(res.statusCode >= 200 && res.statusCode < 400);
+    });
+
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.end();
+  });
+
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const containerInfo = await container.inspect();
+      const isRunning = containerInfo.State.Running;
+
+      if (isRunning) {
+        const reachable = await checkHost();
+        if (reachable) {
+          return;
+        }
+      }
+    } catch (error) {
+      // container may not be ready yet
+    }
+
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+
+  throw new Error('Container is running but the application did not respond in time');
+}
+
 async function cleanupJob(job) {
   try {
     // Clear timeout if exists
@@ -479,8 +549,36 @@ async function cleanupJob(job) {
 }
 
 function getAvailablePort() {
-  // Return a random port between 3001-3999
-  return Math.floor(Math.random() * 999) + 3001;
+  const minPort = 3001;
+  const maxPort = 3999;
+  const maxAttempts = 50;
+
+  return new Promise((resolve, reject) => {
+    let attempt = 0;
+
+    const tryPort = () => {
+      if (attempt >= maxAttempts) {
+        return reject(new Error('No free host port available in range 3001-3999'));
+      }
+
+      attempt += 1;
+      const candidate = Math.floor(Math.random() * (maxPort - minPort + 1)) + minPort;
+      const server = net.createServer();
+
+      server.once('error', () => {
+        server.close();
+        tryPort();
+      });
+
+      server.once('listening', () => {
+        server.close(() => resolve(candidate));
+      });
+
+      server.listen(candidate, '127.0.0.1');
+    };
+
+    tryPort();
+  });
 }
 
 // Pre-pull common Docker images on server boot to minimize first-run latency

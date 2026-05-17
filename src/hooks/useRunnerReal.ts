@@ -148,7 +148,7 @@ export function useRunnerReal() {
     return () => {
       socket.disconnect();
     };
-  }, [projectType, repoName, repoUrl]);
+  }, []);
 
   // Start elapsed time ticker
   useEffect(() => {

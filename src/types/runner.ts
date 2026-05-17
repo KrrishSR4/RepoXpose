@@ -1,4 +1,27 @@
-export type ProjectType = "node" | "python" | "docker" | "static" | "unsupported";
+export type ProjectType =
+  | "node"
+  | "python"
+  | "docker"
+  | "static"
+  | "unsupported"
+  | "nextjs"
+  | "nuxtjs"
+  | "react"
+  | "react-cra"
+  | "react-vite"
+  | "angular"
+  | "vue"
+  | "vue-vite"
+  | "svelte"
+  | "solid"
+  | "astro"
+  | "remix"
+  | "express"
+  | "fastify"
+  | "koa"
+  | "django"
+  | "flask"
+  | "fastapi";
 
 export type RunStatus = "idle" | "cloning" | "detecting" | "installing" | "running" | "success" | "failed";
 
