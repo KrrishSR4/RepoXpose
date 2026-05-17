@@ -14,7 +14,7 @@ interface PreviewPanelProps {
 export const PreviewPanel = ({ status, projectType, repoName, onClose }: PreviewPanelProps) => {
   const [refreshKey, setRefreshKey] = useState(0);
   const port = projectType ? projectTypeMeta[projectType].port : null;
-  const previewUrl = repoName && port ? `https://${repoName}-${port}.sandbox.repoxpose.app` : "";
+  const previewUrl = repoName && port ? `https://${repoName}-${port}.sandbox.runforge.app` : "";
 
   const isLive = status === "success";
   const isBuilding = status === "cloning" || status === "detecting" || status === "installing" || status === "running";

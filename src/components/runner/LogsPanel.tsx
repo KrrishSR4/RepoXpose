@@ -51,7 +51,7 @@ export const LogsPanel = ({ logs, status, onClear }: LogsPanelProps) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `repoxpose-logs-${Date.now()}.log`;
+    a.download = `runforge-logs-${Date.now()}.log`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Logs downloaded");

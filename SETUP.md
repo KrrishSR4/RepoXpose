@@ -1,4 +1,4 @@
-# 🚀 RepoXpose Setup Guide
+# 🚀 RunForge Setup Guide
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@
 
 ```bash
 # Frontend dependencies
-cd /path/to/Repoxpose
+cd /path/to/RunForge
 npm install
 
 # Backend dependencies  
@@ -31,7 +31,7 @@ Server will start on `http://localhost:3001`
 
 **Terminal 2 - Frontend:**
 ```bash
-cd /path/to/Repoxpose
+cd /path/to/RunForge
 npm run dev
 ```
 Frontend will start on `http://localhost:8080`
@@ -112,7 +112,7 @@ netstat -an | grep :8080
 
 ### Project Structure
 ```
-Repoxpose/
+RunForge/
 ├── src/                    # Frontend React code
 │   ├── hooks/
 │   │   ├── useRunner.ts    # Original simulation

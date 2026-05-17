@@ -80,7 +80,7 @@ export function useRunner() {
 
     setLogs([
       makeLog("system", `╔════════════════════════════════════════════╗`),
-      makeLog("system", `║  RepoXpose · Paste. Run. Reveal.          ║`),
+      makeLog("system", `║  RunForge · Paste. Run. Reveal.           ║`),
       makeLog("system", `╚════════════════════════════════════════════╝`),
       makeLog("info", `Repository: ${parsed.owner}/${parsed.name}`),
       makeLog("info", `Job ID: job_${Math.random().toString(36).slice(2, 12)}`),

@@ -175,7 +175,7 @@ export function useRunnerReal() {
       // Add initial logs
       setLogs([
         makeLog("system", `╔════════════════════════════════════════════╗`),
-        makeLog("system", `║  RepoXpose · Paste. Run. Reveal.          ║`),
+        makeLog("system", `║  RunForge · Paste. Run. Reveal.           ║`),
         makeLog("system", `╚════════════════════════════════════════════╝`),
         makeLog("info", `Repository: ${parsed.owner}/${parsed.name}`),
         makeLog("info", `Job ID: ${data.jobId}`),
