@@ -28,7 +28,7 @@ const TEMP_DIR = path.join(__dirname, 'temp');
 app.use(cors());
 app.use(express.json());
 
-fs.ensureDirSync(TEMP_DIR);
+fs.emptyDirSync(TEMP_DIR);
 
 const activeJobs = new Map();
 
