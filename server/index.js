@@ -347,6 +347,30 @@ function getAvailablePort() {
   return Math.floor(Math.random() * 999) + 3001;
 }
 
+// Pre-pull common Docker images on server boot to minimize first-run latency
+function prePullImages() {
+  const images = ['node:18-alpine', 'python:3.10-alpine', 'nginx:alpine'];
+  console.log('Starting background pre-pull of common Docker images...');
+  
+  images.forEach(image => {
+    docker.pull(image)
+      .then(stream => {
+        docker.modem.followProgress(stream, (err, output) => {
+          if (err) {
+            console.log(`[Pre-pull Error] Failed to complete pull for ${image}:`, err.message);
+          } else {
+            console.log(`[Pre-pull Success] Image fully prepared: ${image}`);
+          }
+        });
+      })
+      .catch(err => {
+        console.log(`[Pre-pull Error] Failed to initiate pull for ${image}:`, err.message);
+      });
+  });
+}
+
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  // Run image pre-pulling in background
+  prePullImages();
 });
