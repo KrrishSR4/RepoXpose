@@ -16,7 +16,12 @@ export const SmartExecutionCard = ({ info, onRetry }: SmartExecutionCardProps) =
   const isFailed = info.status === "failed";
   const isRunning = info.status === "running";
 
-  const stackMeta = projectTypeMeta[info.stack];
+  const stackMeta = projectTypeMeta[info.stack as ProjectType] || {
+    label: info.stack,
+    color: "text-primary",
+    file: "—",
+    port: info.port || 80
+  };
 
   const statusConfig = {
     running: { label: "Running", dot: "bg-warning", badge: "bg-warning/15 text-warning border-warning/30", Icon: Loader2, iconCls: "text-warning animate-spin" },

@@ -75,6 +75,7 @@ const Index = () => {
                 projectType={runner.projectType}
                 repoName={runner.repoName}
                 onClose={() => setShowPreview(false)}
+                port={runner.executionInfo?.port}
               />
             </section>
           )}

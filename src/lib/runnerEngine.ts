@@ -39,6 +39,7 @@ export const projectTypeMeta: Record<ProjectType, { label: string; file: string;
   node: { label: "Node.js", file: "package.json", port: 3000, color: "text-success" },
   python: { label: "Python", file: "requirements.txt", port: 5000, color: "text-info" },
   docker: { label: "Docker", file: "Dockerfile", port: 8000, color: "text-primary" },
+  static: { label: "Static Web (Nginx)", file: "index.html", port: 80, color: "text-accent" },
   unsupported: { label: "Unsupported", file: "—", port: 0, color: "text-destructive" },
 };
 

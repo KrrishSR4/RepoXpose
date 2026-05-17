@@ -6,10 +6,10 @@ import { toast } from "sonner";
 
 export interface ExecutionInfo {
   status: "running" | "success" | "failed";
-  stack: ProjectType;
+  stack: string;
   port: number | null;
   startupMs: number | null;
-  dependencies: number;
+  dependencies: 0;
   errorReason?: string;
   suggestedFix?: string;
   fixCommand?: string;
@@ -45,29 +45,76 @@ export function useRunnerReal() {
       setLogs(prev => [...prev, logEntry]);
     });
 
-    socket.on('status', (data: { status: RunStatus; port?: number; containerId?: string }) => {
+    socket.on('status', (data: { 
+      status: RunStatus; 
+      port?: number; 
+      containerId?: string;
+      projectType?: ProjectType;
+      language?: string;
+    }) => {
       setStatus(data.status);
 
-      // Update steps based on status
-      setSteps(prev => prev.map(step => {
-        const stepMap: Record<RunStatus, string> = {
-          idle: 'pending',
-          cloning: 'clone',
-          detecting: 'detect',
-          installing: 'install',
-          running: 'run',
-          success: 'done',
-          failed: 'failed'
-        };
+      if (data.projectType) {
+        setProjectType(data.projectType);
+      }
 
-        const targetStep = stepMap[data.status];
-        return step.id === targetStep ? { ...step, status: data.status === 'failed' ? 'failed' : 'active' } : step;
-      }));
+      // Update steps based on status
+      setSteps(prev => {
+        const currentType = data.projectType || projectType || 'node';
+        // If type changed from mock, rebuild steps
+        let baseSteps = prev.length > 0 && (!data.projectType || data.projectType === projectType)
+          ? [...prev]
+          : buildSteps(currentType);
+
+        // Update the label of the "detect" step dynamically
+        if (data.language) {
+          baseSteps = baseSteps.map(s => {
+            if (s.id === 'detect') {
+              return { ...s, label: `Detect project type: ${data.language}` };
+            }
+            return s;
+          });
+        }
+
+        const newSteps = baseSteps.map(s => ({ ...s }));
+
+        if (data.status === 'cloning') {
+          const idx = newSteps.findIndex(s => s.id === 'clone');
+          if (idx !== -1) newSteps[idx].status = 'active';
+        } else if (data.status === 'detecting') {
+          newSteps.forEach(s => {
+            if (s.id === 'clone') s.status = 'done';
+            if (s.id === 'detect') s.status = 'active';
+          });
+        } else if (data.status === 'installing') {
+          newSteps.forEach(s => {
+            if (s.id === 'clone' || s.id === 'detect') s.status = 'done';
+            if (s.id === 'install' || s.id === 'build') s.status = 'active';
+          });
+        } else if (data.status === 'running') {
+          newSteps.forEach(s => {
+            if (s.id === 'clone' || s.id === 'detect' || s.id === 'install' || s.id === 'build') s.status = 'done';
+            if (s.id === 'run') s.status = 'active';
+          });
+        } else if (data.status === 'success') {
+          newSteps.forEach(s => s.status = 'done');
+        } else if (data.status === 'failed') {
+          const activeIdx = newSteps.findIndex(s => s.status === 'active');
+          if (activeIdx !== -1) {
+            newSteps[activeIdx].status = 'failed';
+          } else {
+            const pendingIdx = newSteps.findIndex(s => s.status === 'pending');
+            if (pendingIdx !== -1) newSteps[pendingIdx].status = 'failed';
+          }
+        }
+
+        return newSteps;
+      });
 
       if (data.status === 'success' && data.port) {
         setExecutionInfo({
           status: 'success',
-          stack: projectType || 'node',
+          stack: data.language || data.projectType || projectType || 'node',
           port: data.port,
           startupMs: Date.now() - startedAtRef.current,
           dependencies: 0
@@ -79,7 +126,7 @@ export function useRunnerReal() {
             id: `run-${Date.now()}`,
             repoUrl,
             repoName,
-            projectType: projectType || 'node',
+            projectType: data.projectType || projectType || 'node',
             status: 'success' as RunStatus,
             startedAt: startedAtRef.current,
             durationMs: Date.now() - startedAtRef.current,

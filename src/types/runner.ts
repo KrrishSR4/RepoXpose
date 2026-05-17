@@ -1,4 +1,4 @@
-export type ProjectType = "node" | "python" | "docker" | "unsupported";
+export type ProjectType = "node" | "python" | "docker" | "static" | "unsupported";
 
 export type RunStatus = "idle" | "cloning" | "detecting" | "installing" | "running" | "success" | "failed";
 

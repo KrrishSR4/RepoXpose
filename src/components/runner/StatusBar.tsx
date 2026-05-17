@@ -41,14 +41,14 @@ export const StatusBar = ({ status, projectType, repoName, elapsedMs }: StatusBa
             </div>
           )}
 
-          {projectType && projectType !== "unsupported" && (
+          {projectType && projectType !== "unsupported" && projectTypeMeta[projectType as ProjectType] && (
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <Cpu className="h-3 w-3" />
-              <span className={projectTypeMeta[projectType].color}>
-                {projectTypeMeta[projectType].label}
+              <span className={projectTypeMeta[projectType as ProjectType].color}>
+                {projectTypeMeta[projectType as ProjectType].label}
               </span>
               <span>·</span>
-              <span className="font-mono">port {projectTypeMeta[projectType].port}</span>
+              <span className="font-mono">port {projectTypeMeta[projectType as ProjectType].port}</span>
             </div>
           )}
         </div>

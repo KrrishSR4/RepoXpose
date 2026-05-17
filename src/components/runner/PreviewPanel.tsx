@@ -9,12 +9,13 @@ interface PreviewPanelProps {
   projectType: ProjectType | null;
   repoName: string | null;
   onClose: () => void;
+  port?: number | null;
 }
 
-export const PreviewPanel = ({ status, projectType, repoName, onClose }: PreviewPanelProps) => {
+export const PreviewPanel = ({ status, projectType, repoName, onClose, port: propsPort }: PreviewPanelProps) => {
   const [refreshKey, setRefreshKey] = useState(0);
-  const port = projectType ? projectTypeMeta[projectType].port : null;
-  const previewUrl = repoName && port ? `https://${repoName}-${port}.sandbox.runforge.app` : "";
+  const port = propsPort || (projectType ? projectTypeMeta[projectType].port : null);
+  const previewUrl = port ? `http://localhost:${port}` : "";
 
   const isLive = status === "success";
   const isBuilding = status === "cloning" || status === "detecting" || status === "installing" || status === "running";
@@ -45,8 +46,9 @@ export const PreviewPanel = ({ status, projectType, repoName, onClose }: Preview
         </div>
 
         <a
-          href="#"
-          onClick={(e) => e.preventDefault()}
+          href={previewUrl || undefined}
+          target="_blank"
+          rel="noopener noreferrer"
           className={cn(
             "inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors",
             !isLive && "opacity-30 pointer-events-none"
@@ -72,8 +74,8 @@ export const PreviewPanel = ({ status, projectType, repoName, onClose }: Preview
         {status === "idle" && <IdleState />}
         {isBuilding && <BuildingState status={status} />}
         {status === "failed" && <FailedState />}
-        {isLive && projectType && repoName && (
-          <LivePreview key={refreshKey} projectType={projectType} repoName={repoName} port={port!} />
+        {isLive && port && (
+          <LivePreview key={refreshKey} previewUrl={previewUrl} />
         )}
       </div>
     </div>
@@ -134,89 +136,22 @@ const FailedState = () => (
   </div>
 );
 
-const LivePreview = ({ projectType, repoName, port }: { projectType: ProjectType; repoName: string; port: number }) => {
+const LivePreview = ({ previewUrl }: { previewUrl: string }) => {
   const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setLoaded(true), 500);
-    return () => clearTimeout(t);
-  }, []);
 
   return (
-    <>
+    <div className="absolute inset-0 bg-white h-full w-full">
+      <iframe
+        src={previewUrl}
+        className="h-full w-full border-0 bg-white"
+        onLoad={() => setLoaded(true)}
+        sandbox="allow-scripts allow-same-origin allow-forms"
+      />
       {!loaded && (
         <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
           <Loader2 className="h-5 w-5 animate-spin text-primary" />
         </div>
       )}
-      <div className="absolute inset-0 animate-fade-in">
-        <MockPreview projectType={projectType} repoName={repoName} port={port} />
-      </div>
-    </>
-  );
-};
-
-const MockPreview = ({ projectType, repoName, port }: { projectType: ProjectType; repoName: string; port: number }) => {
-  if (projectType === "node") {
-    return (
-      <div className="h-full w-full overflow-auto bg-white text-slate-900">
-        <div className="min-h-full p-10">
-          <div className="max-w-3xl mx-auto">
-            <div className="text-xs font-mono text-slate-500 mb-2">localhost:{port}</div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900 mb-2">
-              {repoName}
-            </h1>
-            <p className="text-slate-600 mb-8 text-sm">A React + Vite application running inside a sandboxed container.</p>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { l: "Framework", v: "React 18" }, { l: "Bundler", v: "Vite 5" },
-                { l: "Status", v: "Running" }, { l: "Uptime", v: "00:00:12" },
-              ].map(c => (
-                <div key={c.l} className="bg-slate-50 rounded-md p-3 border border-slate-200">
-                  <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">{c.l}</div>
-                  <div className="text-sm font-semibold mt-0.5 text-slate-900">{c.v}</div>
-                </div>
-              ))}
-            </div>
-            <button className="mt-6 px-4 py-2 rounded-md bg-emerald-700 text-white text-sm font-medium hover:bg-emerald-800">
-              Get started
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (projectType === "python") {
-    return (
-      <div className="h-full w-full overflow-auto bg-white text-slate-900">
-        <div className="min-h-full p-10">
-          <div className="max-w-2xl mx-auto">
-            <div className="text-xs font-mono text-slate-500 mb-2">localhost:{port}</div>
-            <h1 className="text-2xl font-semibold mb-2">Flask · {repoName}</h1>
-            <p className="text-slate-600 text-sm">Hello, World! This Python application is running in a Docker container.</p>
-            <ul className="mt-5 space-y-1.5 text-[13px]">
-              <li className="p-2.5 rounded-md bg-slate-50 border border-slate-200 font-mono">server: gunicorn 21.2.0</li>
-              <li className="p-2.5 rounded-md bg-slate-50 border border-slate-200 font-mono">workers: 4</li>
-              <li className="p-2.5 rounded-md bg-slate-50 border border-slate-200 font-mono">bound: 0.0.0.0:{port}</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="h-full w-full overflow-auto bg-slate-950 text-slate-100 font-mono text-sm p-10">
-      <div className="max-w-2xl">
-        <div className="text-xs text-slate-500 mb-2">localhost:{port}</div>
-        <pre className="text-emerald-400">
-{`{
-  "service": "${repoName}",
-  "status": "healthy",
-  "port": ${port},
-  "uptime_s": 14,
-  "version": "1.0.0"
-}`}
-        </pre>
-      </div>
     </div>
   );
 };
