@@ -24,6 +24,9 @@ const io = new Server(server, {
 const docker = new Docker();
 const PORT = 3001;
 const TEMP_DIR = path.join(__dirname, 'temp');
+const CACHE_DIR = path.join(__dirname, 'cache');
+
+fs.ensureDirSync(CACHE_DIR);
 
 app.use(cors());
 app.use(express.json());
@@ -123,47 +126,82 @@ async function executeRepository(jobId, repoUrl, workDir) {
   }
 }
 
-async function cloneRepo(job, repoUrl, workDir) {
-  return new Promise((resolve, reject) => {
-    job.status = 'cloning';
-    const log = (type, message) => {
-      job.logs.push({ type, message });
-      io.to(job.id).emit('log', { type, message });
-    };
+function getRepoIdentifier(repoUrl) {
+  try {
+    const cleanUrl = repoUrl.replace(/\.git$/, '').replace(/\/$/, '');
+    const parts = cleanUrl.split('/');
+    if (parts.length >= 2) {
+      const owner = parts[parts.length - 2];
+      const name = parts[parts.length - 1];
+      return `${owner}_${name}`;
+    }
+  } catch (e) {}
+  return null;
+}
 
-    log('info', 'Cloning repository...');
-    
-    const gitProcess = spawn('git', ['clone', '--depth=1', '--single-branch', '--no-tags', repoUrl, workDir]);
-    
-    const timeout = setTimeout(() => {
-      gitProcess.kill();
-      reject(new Error('Clone timeout after 2 minutes'));
-    }, 2 * 60 * 1000);
-    
-    gitProcess.stdout.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output) {
-        log('info', output);
-      }
-    });
-    
-    gitProcess.stderr.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output) {
-        log('info', output);
-      }
-    });
-    
-    gitProcess.on('close', (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        log('success', 'Repository cloned successfully');
+async function cloneRepo(job, repoUrl, workDir) {
+  const log = (type, message) => {
+    job.logs.push({ type, message });
+    io.to(job.id).emit('log', { type, message });
+  };
+
+  const repoId = getRepoIdentifier(repoUrl);
+  if (!repoId) {
+    throw new Error('Invalid repository URL');
+  }
+
+  const cachePath = path.join(CACHE_DIR, repoId);
+  const cacheExists = await fs.pathExists(cachePath);
+
+  if (cacheExists) {
+    log('info', 'Found cached version of repository. Updating with latest changes...');
+    // Run git pull in cache path
+    await new Promise((resolve) => {
+      const gitProcess = spawn('git', ['pull'], { cwd: cachePath });
+      const timeout = setTimeout(() => {
+        gitProcess.kill();
+        log('warn', 'Git pull timed out, using existing cache.');
         resolve();
-      } else {
-        reject(new Error('Git clone failed'));
-      }
+      }, 15 * 1000); // 15 seconds timeout for quick pull
+
+      gitProcess.on('close', (code) => {
+        clearTimeout(timeout);
+        if (code === 0) {
+          log('success', 'Repository cache updated successfully.');
+          resolve();
+        } else {
+          log('warn', 'Failed to update cache, proceeding with existing files.');
+          resolve();
+        }
+      });
     });
-  });
+  } else {
+    log('info', 'No cache found. Cloning repository to cache...');
+    await fs.ensureDir(cachePath);
+    await new Promise((resolve, reject) => {
+      const gitProcess = spawn('git', ['clone', '--depth=1', '--single-branch', '--no-tags', repoUrl, cachePath]);
+      const timeout = setTimeout(() => {
+        gitProcess.kill();
+        reject(new Error('Git clone timeout after 2 minutes'));
+      }, 2 * 60 * 1000);
+
+      gitProcess.on('close', (code) => {
+        clearTimeout(timeout);
+        if (code === 0) {
+          log('success', 'Repository cloned to cache successfully.');
+          resolve();
+        } else {
+          fs.remove(cachePath).catch(() => {});
+          reject(new Error('Git clone failed'));
+        }
+      });
+    });
+  }
+
+  // Copy from cache to workspace
+  log('info', 'Preparing container workspace...');
+  await fs.copy(cachePath, workDir);
+  log('success', 'Workspace ready');
 }
 
 async function detectProjectType(workDir) {

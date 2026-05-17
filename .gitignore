@@ -26,3 +26,4 @@ dist-ssr
 # Temporary sandbox directories
 server/temp/
 server/workspace/
+server/cache/
