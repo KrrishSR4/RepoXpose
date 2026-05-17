@@ -110,9 +110,11 @@ async function executeRepository(jobId, repoUrl, workDir) {
 
   try {
     // Step 1: Clone repository
+    io.to(jobId).emit('status', { status: 'cloning' });
     await cloneRepo(job, repoUrl, workDir);
 
     // Step 2: Detect project type
+    io.to(jobId).emit('status', { status: 'detecting' });
     const projectType = await detectProjectType(workDir);
     job.stack = projectType;
 
@@ -121,6 +123,7 @@ async function executeRepository(jobId, repoUrl, workDir) {
 
   } catch (error) {
     job.status = 'failed';
+    io.to(jobId).emit('status', { status: 'failed' });
     job.logs.push({ type: 'error', message: error.message });
     io.to(jobId).emit('log', { type: 'error', message: error.message });
   }
@@ -231,6 +234,7 @@ async function runDirectContainer(job, workDir, projectType) {
     job.port = hostPort;
 
     job.status = 'running';
+    io.to(job.id).emit('status', { status: 'running' });
     log('info', 'Starting container with direct execution...');
 
     let image, command;
@@ -248,6 +252,7 @@ async function runDirectContainer(job, workDir, projectType) {
     log('info', `Pulling image ${image}...`);
     await docker.pull(image);
 
+    io.to(job.id).emit('status', { status: 'installing' });
     log('info', 'Installing dependencies and starting application...');
 
     const container = await docker.createContainer({
@@ -267,6 +272,11 @@ async function runDirectContainer(job, workDir, projectType) {
     job.status = 'success';
 
     log('success', `Container running on port ${hostPort}`);
+    io.to(job.id).emit('status', { 
+      status: 'success', 
+      port: hostPort, 
+      containerId: container.id 
+    });
 
     // Stream logs
     streamLogs(job, container);
@@ -282,6 +292,7 @@ async function runDirectContainer(job, workDir, projectType) {
 
   } catch (error) {
     job.status = 'failed';
+    io.to(job.id).emit('status', { status: 'failed' });
     log('error', error.message);
   }
 }
